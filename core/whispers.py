@@ -2,9 +2,8 @@ import random
 import shutil
 from facenet_models import FacenetModel
 import numpy as np
-from skimage import io
 from core.similarity import cosine_distances
-from core.normalize import resize_images
+from core.normalize import resize_images, load_image
 detection_prob_threshold = 0.87
 model = FacenetModel()
 class Node:
@@ -14,9 +13,7 @@ class Node:
         self.label = label
 
 def get_descriptor(image_path):
-    image = io.imread(str(image_path))
-    if image.shape[-1] == 4:
-        image = image[..., :3]  
+    image = load_image(image_path)
     boxes, probabilities, landmarks = model.detect(image)
     if boxes is not None:
         mask = probabilities > detection_prob_threshold
