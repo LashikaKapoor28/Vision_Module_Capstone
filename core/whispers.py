@@ -5,7 +5,7 @@ import numpy as np
 from skimage import io
 from core.similarity import cosine_distances
 from core.normalize import resize_images
-detection_prob_threshold = 0.9
+detection_prob_threshold = 0.87
 model = FacenetModel()
 class Node:
     def __init__(self, image_path, descriptor, label):
