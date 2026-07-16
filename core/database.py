@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .normalize import resize_image
 from .profile import Profile
 
 
@@ -54,12 +55,13 @@ class FaceDatabase:
 
         return self.profiles[name]
 
-    def add_image(self, name, image, model, detection_threshold=0.9):
+    def add_image(self, name, image, model, detection_threshold=0.87):
         image = np.asarray(image)
 
         if image.ndim != 3 or image.shape[-1] != 3:
             raise ValueError("image must have shape (height, width, 3)")
 
+        image = resize_image(image)
         boxes, probabilities, landmarks = model.detect(image)
 
         if boxes is None or probabilities is None:
