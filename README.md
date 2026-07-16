@@ -1,6 +1,7 @@
 # Vision_Module_Capstone
 
 Sriram: Everyone create a .gitignore for the data folder and your venv
+detection_prob_threshold = 0.87
 
 ***************8
 numpy
