@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 known_faces/
 data/
+online_faces/
