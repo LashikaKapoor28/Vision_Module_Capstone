@@ -1,13 +1,17 @@
+import pickle
+from pathlib import Path
+
 import numpy as np
 
 from .profile import Profile
 
 
 class FaceDatabase:
-    """Stores profiles using names as dictionary keys."""
-
     def __init__(self, profiles=None):
-        self.profiles = profiles if profiles is not None else {}
+        if profiles is None:
+            profiles = {}
+
+        self.profiles = profiles
 
     def __len__(self):
         return len(self.profiles)
@@ -20,29 +24,28 @@ class FaceDatabase:
 
     def add_profile(self, profile):
         if not isinstance(profile, Profile):
-            raise TypeError("profile must be a Profile object")
+            raise TypeError("profile must be a Profile")
 
         if profile.name in self.profiles:
-            raise ValueError(f"A profile named {profile.name} already exists")
+            raise ValueError(f"{profile.name} is already in the database")
 
         self.profiles[profile.name] = profile
 
     def remove_profile(self, name):
         if name not in self.profiles:
-            raise KeyError(f"No profile named {name} exists")
+            raise KeyError(f"{name} is not in the database")
 
         return self.profiles.pop(name)
 
     def add_descriptor(self, name, descriptor):
+        name = name.strip()
         descriptor = np.asarray(descriptor)
 
-        if not isinstance(name, str) or name.strip() == "":
-            raise ValueError("name must be a non-empty string")
+        if name == "":
+            raise ValueError("name cannot be empty")
 
         if descriptor.shape != (512,):
             raise ValueError("descriptor must have shape (512,)")
-
-        name = name.strip()
 
         if name not in self.profiles:
             self.profiles[name] = Profile(name, [descriptor])
@@ -51,13 +54,13 @@ class FaceDatabase:
 
         return self.profiles[name]
 
-    def add_image(self, name, image, model, detection_threshold=0.90):
+    def add_image(self, name, image, model, detection_threshold=0.9):
         image = np.asarray(image)
 
         if image.ndim != 3 or image.shape[-1] != 3:
             raise ValueError("image must have shape (height, width, 3)")
 
-        boxes, probabilities, _ = model.detect(image)
+        boxes, probabilities, landmarks = model.detect(image)
 
         if boxes is None or probabilities is None:
             raise ValueError("No face was detected")
@@ -65,13 +68,14 @@ class FaceDatabase:
         boxes = np.asarray(boxes)
         probabilities = np.asarray(probabilities)
 
+        # only keep detections above the probability cutoff
         accepted_boxes = boxes[probabilities >= detection_threshold]
 
         if len(accepted_boxes) == 0:
             raise ValueError("No face passed the detection threshold")
 
         if len(accepted_boxes) > 1:
-            raise ValueError("The image must contain only one face")
+            raise ValueError("The image should contain only one face")
 
         descriptors = np.asarray(
             model.compute_descriptors(image, accepted_boxes)
@@ -82,6 +86,30 @@ class FaceDatabase:
         elif descriptors.shape == (512,):
             descriptor = descriptors
         else:
-            raise ValueError("Expected exactly one face descriptor")
+            raise ValueError("Expected one face descriptor")
 
         return self.add_descriptor(name, descriptor)
+
+    def save(self, filepath):
+        path = Path(filepath)
+
+        if path.parent != Path("."):
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(path, "wb") as file:
+            pickle.dump(self, file)
+
+    @classmethod
+    def load(cls, filepath):
+        path = Path(filepath)
+
+        if not path.exists():
+            raise FileNotFoundError(f"Could not find {path}")
+
+        with open(path, "rb") as file:
+            database = pickle.load(file)
+
+        if not isinstance(database, cls):
+            raise TypeError("File does not contain a FaceDatabase")
+
+        return database

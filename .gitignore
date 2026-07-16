@@ -1,9 +1,8 @@
 __pycache__/
 *.pyc
-known_faces/
-data/
-
 .venv/
-venv/
-env/
+data/
+data/test_images/
 .DS_Store
+**/ .DS_Store
+data/known_faces/.DS_Store
