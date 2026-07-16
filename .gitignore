@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 data/
+online_faces/
 data/test_images/
 .DS_Store
 **/ .DS_Store
