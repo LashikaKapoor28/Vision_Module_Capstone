@@ -1,3 +1,5 @@
+# Need to build the video lloop
+
 import sys
 from pathlib import Path
 from camera import take_picture
@@ -47,3 +49,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
