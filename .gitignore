@@ -7,3 +7,7 @@ data/test_images/
 .DS_Store
 **/ .DS_Store
 data/known_faces/.DS_Store
+known_faces/
+result/
+result.zip
+result_convergence.png
