@@ -1,8 +1,6 @@
 import pickle
 from pathlib import Path
-
 import numpy as np
-
 from .normalize import resize_image
 from .profile import Profile
 
