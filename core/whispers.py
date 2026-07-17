@@ -1,5 +1,11 @@
+# TODO: run the full pipeline (adj_list -> whispers -> connected_comps -> organize_photos)
+# end-to-end on known_faces/ now that real images exist, and check results by eye.
+# TODO: wire results into Profile (core/profile.py) and persist via core/database.py
+# (currently empty) so recognized identities survive between runs.
 import random
 import shutil
+from collections import Counter
+from pathlib import Path
 from facenet_models import FacenetModel
 import numpy as np
 from skimage import io
@@ -14,16 +20,23 @@ class Node:
         self.label = label
 
 def get_descriptor(image_path):
-    image = io.imread(str(image_path))
+    # Images come from phones/screenshots in mixed formats; some (e.g. HEIC)
+    # skimage can't decode at all. Skip rather than crash the whole batch.
+    try:
+        image = io.imread(str(image_path))
+    except Exception as e:
+        print(f"Skipping {image_path}: could not read image ({e})")
+        return None
     if image.shape[-1] == 4:
-        image = image[..., :3]  
+        image = image[..., :3]
     boxes, probabilities, landmarks = model.detect(image)
     if boxes is not None:
         mask = probabilities > detection_prob_threshold
         boxes = boxes[mask]
         probabilities = probabilities[mask]
     if boxes is None or len(boxes) == 0:
-        raise ValueError(f"No face detected in {image_path}")
+        print(f"Skipping {image_path}: no face detected")
+        return None
 
     best = np.argmax(probabilities)
     descriptors = model.compute_descriptors(image, boxes)
@@ -33,10 +46,17 @@ def get_descriptor(image_path):
 def adj_list(image_paths, threshold):
     for folder in {p.parent for p in image_paths}:
         resize_images(folder)
-    descriptors = np.array([get_descriptor(p) for p in image_paths])
+
+    valid_paths, descriptors = [], []
+    for p in image_paths:
+        descriptor = get_descriptor(p)
+        if descriptor is not None:
+            valid_paths.append(p)
+            descriptors.append(descriptor)
+    descriptors = np.array(descriptors)
     nodes = [
         Node(path, desc, label=i)
-        for i, (path, desc) in enumerate(zip(image_paths, descriptors))
+        for i, (path, desc) in enumerate(zip(valid_paths, descriptors))
     ]
 
     dists = cosine_distances(descriptors, descriptors)
@@ -53,6 +73,10 @@ def adj_list(image_paths, threshold):
 
     return nodes, adj
 
+# TODO: this trusts node.label to already reflect the converged communities from
+# whispers() rather than actually walking adj. Confirm that's fine once tested on
+# real data, or switch to a real connected-components traversal if labels don't
+# converge cleanly.
 def connected_comps(adj, nodes):
     groups = {}
     for node in nodes:
@@ -71,18 +95,80 @@ def propagate_label(node, neighbors, adj):
 
 def whispers(nodes, adj, iterations):
     component_counts = []
+    # Patience scales with graph size. Each iteration only updates one random
+    # node, so a small fixed window (the old `samecount > 10`) can look
+    # "stable" by coincidence long before propagation has actually finished —
+    # verified empirically: on a 28-node graph it stopped after 44 iterations
+    # at 12 components, when true convergence (~6-7 components) took ~3000.
+    patience = len(nodes) * 20
+    stable_streak = 0
     for _ in range(iterations):
         node = random.choice(nodes)
         propagate_label(node, adj[node], adj)
         component_counts.append(len(connected_comps(adj, nodes)))
+        if len(component_counts) > 1 and component_counts[-1] == component_counts[-2]:
+            stable_streak += 1
+        else:
+            stable_streak = 0
+        if stable_streak > patience:
+            break
     return component_counts
 
 
-def organize_photos(components, output_dir):
+# TODO: folder names come from the majority source folder in known_faces/,
+# which only works because that directory is already organized per-person.
+# Once components are matched against Profile identities, name folders after
+# the matched profile instead.
+def organize_photos(components, output_dir=Path("result")):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    used_names = set()
     for i, component in enumerate(components):
-        subfolder = output_dir / f"component_{i}"
+        names = [node.image_path.parent.name for node in component]
+        person_name = Counter(names).most_common(1)[0][0]
+        if person_name in used_names:
+            person_name = f"{person_name}_{i}"
+        used_names.add(person_name)
+
+        subfolder = output_dir / person_name
         subfolder.mkdir(parents=True, exist_ok=True)
         for node in component:
-            # Copy or move the image to the subfolder
-            # For example, using shutil.copy or shutil.move
-            shutil.copy(node.image_path, subfolder / node.image_path.name)  # Replace with actual file operation
+            shutil.copy(node.image_path, subfolder / node.image_path.name)
+
+if __name__ == "__main__":
+    input_dir = Path("known_faces")
+    output_dir = Path("result")
+
+    # known_faces/ has per-person subfolders, and images come from phones/
+    # screenshots in mixed formats/cases, so glob recursively over extensions.
+    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+    image_paths = [
+        p for p in input_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+
+    # Cosine-distance threshold (not detection probability) — see README.
+    threshold = 0.2846
+
+    nodes, adj = adj_list(image_paths, threshold)
+    print(f"Built graph: {len(nodes)} nodes")
+
+    # 100 flat iterations was nowhere near enough for convergence on a graph
+    # this size (see whispers()'s patience comment) — scale with node count.
+    iterations = 200 * len(nodes)
+    component_counts = whispers(nodes, adj, iterations)
+
+    import matplotlib
+    matplotlib.use("Agg")  # headless-safe; we only save the figure, never show()
+    import matplotlib.pyplot as plt
+    plt.plot(component_counts)
+    plt.xlabel("iteration")
+    plt.ylabel("number of connected components")
+    plt.title("Whispers convergence")
+    plt.savefig("result_convergence.png")
+    print("Saved convergence plot to result_convergence.png")
+
+    components = connected_comps(adj, nodes)
+    print(f"Converged to {len(components)} components")
+
+    organize_photos(components, output_dir)
+    print(f"Organized photos into {output_dir}/")
