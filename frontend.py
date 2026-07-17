@@ -10,6 +10,7 @@ from PIL import Image
 from core.database import FaceDatabase
 from core.whispers import adj_list, connected_comps, whispers
 from recognizer import recognize
+from core.similarity import cosine_distances
 
 
 DB_PATH = Path("data/profiles.pkl")
@@ -56,6 +57,39 @@ def draw_matches(image, boxes, names):
         )
     return output
 
+def get_group_name(group, database, threshold=0.2846):
+    if len(database) == 0:
+        return "Unknown"
+
+    group_descriptors = np.array(
+        [node.descriptor for node in group]
+    )
+
+    group_average = np.mean(
+        group_descriptors,
+        axis=0
+    ).reshape(1, -1)
+
+    profile_names = list(database.profiles.keys())
+
+    known_descriptors = np.array(
+        [
+            database.profiles[name].average_descriptor
+            for name in profile_names
+        ]
+    )
+
+    distances = cosine_distances(
+        group_average,
+        known_descriptors
+    )[0]
+
+    best_match = np.argmin(distances)
+
+    if distances[best_match] < threshold:
+        return profile_names[best_match]
+
+    return "Unknown"
 
 if "database" not in st.session_state:
     st.session_state.database = load_database()
@@ -190,10 +224,17 @@ if st.button("Sort Photos"):
                             groups,
                             start=1
                         ):
-                            st.subheader(
-                                f"Person Group {group_number}"
+                            group_name = get_group_name(
+                                 group,
+                                 st.session_state.database
                             )
-
+                            if group_name == "Unknown":
+                                 st.subheader(
+                                      f"Unknown Group {group_number}"
+                                )
+                            else:
+                                st.subheader(group_name)
+                                
                             columns = st.columns(
                                 min(3, len(group))
                             )
