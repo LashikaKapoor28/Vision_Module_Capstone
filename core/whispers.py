@@ -1,7 +1,4 @@
-# TODO: run the full pipeline (adj_list -> whispers -> connected_comps -> organize_photos)
-# end-to-end on known_faces/ now that real images exist, and check results by eye.
-# TODO: wire results into Profile (core/profile.py) and persist via core/database.py
-# (currently empty) so recognized identities survive between runs.
+
 import random
 import shutil
 from collections import Counter
@@ -73,10 +70,6 @@ def adj_list(image_paths, threshold):
 
     return nodes, adj
 
-# TODO: this trusts node.label to already reflect the converged communities from
-# whispers() rather than actually walking adj. Confirm that's fine once tested on
-# real data, or switch to a real connected-components traversal if labels don't
-# converge cleanly.
 def connected_comps(adj, nodes):
     groups = {}
     for node in nodes:
@@ -95,11 +88,7 @@ def propagate_label(node, neighbors, adj):
 
 def whispers(nodes, adj, iterations):
     component_counts = []
-    # Patience scales with graph size. Each iteration only updates one random
-    # node, so a small fixed window (the old `samecount > 10`) can look
-    # "stable" by coincidence long before propagation has actually finished —
-    # verified empirically: on a 28-node graph it stopped after 44 iterations
-    # at 12 components, when true convergence (~6-7 components) took ~3000.
+
     patience = len(nodes) * 20
     stable_streak = 0
     for _ in range(iterations):
@@ -114,11 +103,6 @@ def whispers(nodes, adj, iterations):
             break
     return component_counts
 
-
-# TODO: folder names come from the majority source folder in known_faces/,
-# which only works because that directory is already organized per-person.
-# Once components are matched against Profile identities, name folders after
-# the matched profile instead.
 def organize_photos(components, output_dir=Path("result")):
     output_dir.mkdir(parents=True, exist_ok=True)
     used_names = set()
