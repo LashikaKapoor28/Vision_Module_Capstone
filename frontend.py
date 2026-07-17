@@ -1,18 +1,20 @@
 from pathlib import Path
 
+import tempfile
 import cv2
 import numpy as np
 import streamlit as st
+
 from facenet_models import FacenetModel
 from PIL import Image
-
 from core.database import FaceDatabase
+from core.whispers import adj_list, connected_comps, whispers
 from recognizer import recognize
 
 
 DB_PATH = Path("data/profiles.pkl")
 DETECTION_THRESHOLD = 0.87
-
+WHISPERS_THRESHOLD = 0.2846
 
 st.set_page_config(
     page_title="Face Recognition",
@@ -112,7 +114,6 @@ if uploaded_file is not None:
                     model=st.session_state.model,
                     detection_threshold=DETECTION_THRESHOLD
                 )
-
                 st.session_state.database.save(DB_PATH)
                 st.success(
                     f"{name.strip()} was added to the database."
@@ -128,3 +129,94 @@ if len(st.session_state.database) == 0:
 else:
     for name in st.session_state.database.profiles:
         st.write(name)
+st.divider()
+st.subheader("Sort Photos by Person")
+
+uploaded_photos = st.file_uploader(
+    "Upload multiple photos",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True,
+    key="whispers_upload"
+)
+
+if st.button("Sort Photos"):
+    if len(uploaded_photos) < 2:
+        st.warning("Upload at least two photos.")
+
+    else:
+        with st.spinner("Sorting photos..."):
+            try:
+                with tempfile.TemporaryDirectory() as temp_folder:
+                    temp_path = Path(temp_folder)
+                    image_paths = []
+
+                    for index, uploaded_photo in enumerate(uploaded_photos):
+                        filename = f"{index}_{uploaded_photo.name}"
+                        photo_path = temp_path / filename
+
+                        with open(photo_path, "wb") as file:
+                            file.write(uploaded_photo.getbuffer())
+
+                        image_paths.append(photo_path)
+
+                    nodes, adjacency = adj_list(
+                        image_paths,
+                        WHISPERS_THRESHOLD
+                    )
+
+                    if len(nodes) == 0:
+                        st.warning("No usable faces were found.")
+
+                    else:
+                        iterations = 200 * len(nodes)
+
+                        whispers(
+                            nodes,
+                            adjacency,
+                            iterations
+                        )
+
+                        groups = connected_comps(
+                            adjacency,
+                            nodes
+                        )
+
+                        st.success(
+                            f"Sorted the photos into "
+                            f"{len(groups)} group(s)."
+                        )
+
+                        for group_number, group in enumerate(
+                            groups,
+                            start=1
+                        ):
+                            st.subheader(
+                                f"Person Group {group_number}"
+                            )
+
+                            columns = st.columns(
+                                min(3, len(group))
+                            )
+
+                            for index, node in enumerate(group):
+                                sorted_image = Image.open(
+                                    node.image_path
+                                ).convert("RGB")
+
+                                original_name = node.image_path.name.split(
+                                    "_",
+                                    1
+                                )[-1]
+
+                                columns[
+                                    index % len(columns)
+                                ].image(
+                                    sorted_image,
+                                    caption=original_name,
+                                    use_container_width=True
+                                )
+
+            except Exception as error:
+                st.error(
+                    f"Could not sort the photos: {error}"
+                )
