@@ -1,6 +1,6 @@
 import random
 import shutil
-from collections import Counter
+from collections import Counter, deque
 from pathlib import Path
 from facenet_models import FacenetModel
 import numpy as np
@@ -75,6 +75,38 @@ def connected_comps(adj, nodes):
     for node in nodes:
         groups.setdefault(node.label, []).append(node)
     return list(groups.values())
+
+
+def graph_connected_comps(adj, nodes):
+    visited = set()
+    components = []
+    for start in nodes:
+        if start in visited:
+            continue
+        visited.add(start)
+        component = [start]
+        queue = deque([start])
+        while queue:
+            node = queue.popleft()
+            for neighbor, _weight in adj[node]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    component.append(neighbor)
+                    queue.append(neighbor)
+        components.append(component)
+    return components
+def resolve_stuck_splits(adj, nodes):
+    merged = 0
+    for comp in graph_connected_comps(adj, nodes):
+        labels_in_comp = {node.label for node in comp}
+        if len(labels_in_comp) <= 1:
+            continue
+        counts = Counter(node.label for node in comp)
+        target_label = min(counts, key=lambda label: (-counts[label], label))
+        for node in comp:
+            node.label = target_label
+        merged += 1
+    return merged
 
 
 def propagate_label(node, neighbors, adj):
@@ -155,6 +187,11 @@ if __name__ == "__main__":
 
     components = connected_comps(adj, nodes)
     print(f"Converged to {len(components)} components")
+
+    merged = resolve_stuck_splits(adj, nodes)
+    if merged:
+        components = connected_comps(adj, nodes)
+        print(f"Merged {merged} stuck split(s) -> {len(components)} components")
 
     organize_photos(components, output_dir)
     print(f"Organized photos into {output_dir}/")
