@@ -5,8 +5,9 @@ from collections import Counter
 from pathlib import Path
 from facenet_models import FacenetModel
 import numpy as np
+from skimage import io
 from core.similarity import cosine_distances
-from core.normalize import resize_images, load_image
+from core.normalize import resize_images
 detection_prob_threshold = 0.87
 model = FacenetModel()
 class Node:
@@ -16,9 +17,15 @@ class Node:
         self.label = label
 
 def get_descriptor(image_path):
-    image = io.imread(str(image_path))
+    # Images come from phones/screenshots in mixed formats; some (e.g. HEIC)
+    # skimage can't decode at all. Skip rather than crash the whole batch.
+    try:
+        image = io.imread(str(image_path))
+    except Exception as e:
+        print(f"Skipping {image_path}: could not read image ({e})")
+        return None
     if image.shape[-1] == 4:
-        image = image[..., :3]  
+        image = image[..., :3]
     boxes, probabilities, landmarks = model.detect(image)
     if boxes is not None:
         mask = probabilities > detection_prob_threshold
